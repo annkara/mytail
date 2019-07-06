@@ -25,10 +25,13 @@ func printLines(offset int64, file *os.File) error {
 	for {
 		l, err := b.ReadBytes('\n')
 		if err != nil {
-			//fmt.Print(string(l))
 			break
 		}
-		fmt.Println(l)
+
+		if l[0] == '\n' {
+			continue
+		}
+		fmt.Print(string(l))
 	}
 	return nil
 }
