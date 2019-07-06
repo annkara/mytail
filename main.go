@@ -1,8 +1,8 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"strconv"
@@ -20,22 +20,15 @@ type config struct {
 
 func printLines(offset int64, file *os.File) error {
 
-	var line string
-	buf := make([]byte, 1)
+	b := bufio.NewReader(file)
+
 	for {
-		_, err := file.ReadAt(buf, offset)
-		if io.EOF == err {
-			fmt.Print(line)
+		l, err := b.ReadBytes('\n')
+		if err != nil {
+			//fmt.Print(string(l))
 			break
 		}
-
-		if string(buf) == "\n" {
-			fmt.Print(line)
-			line = ""
-		}
-
-		line = line + string(buf)
-		offset++
+		fmt.Println(l)
 	}
 	return nil
 }
