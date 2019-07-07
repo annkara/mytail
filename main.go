@@ -18,20 +18,22 @@ type config struct {
 	files []string
 }
 
-func printLines(offset int64, file *os.File) error {
+func printLines(file *os.File) error {
 
 	b := bufio.NewReader(file)
 
 	for {
-		l, err := b.ReadBytes('\n')
+		line, err := b.ReadBytes('\n')
 		if err != nil {
+			fmt.Println(string(line))
 			break
 		}
 
-		if l[0] == '\n' {
+		tmp := strings.Trim(string(line), "\r\n")
+		if len(tmp) == 0 {
 			continue
 		}
-		fmt.Print(string(l))
+		fmt.Println(tmp)
 	}
 	return nil
 }
@@ -40,12 +42,27 @@ func offset(lines int, file *os.File) (int64, error) {
 
 	info, err := file.Stat()
 	if err != nil {
-		return 0, nil
+		return 0, err
 	}
 
-	size := info.Size() - 2
+	size := info.Size() - 1
 	var offset int64
 	buf := make([]byte, 1)
+
+	for {
+		b := make([]byte, 1)
+		offset, err = file.Seek(size, os.SEEK_SET)
+		if err != nil {
+			break
+		}
+
+		file.ReadAt(b, offset)
+		if b[0] == '\r' || b[0] == '\n' {
+			size--
+		} else {
+			break
+		}
+	}
 
 	for lines > 0 {
 		offset, err = file.Seek(size, os.SEEK_SET)
@@ -62,9 +79,6 @@ func offset(lines int, file *os.File) (int64, error) {
 		size--
 	}
 
-	if offset != 0 {
-		offset++
-	}
 	return offset, nil
 }
 
@@ -80,12 +94,11 @@ func lines(lines int, name string, printHeaders bool) error {
 	}
 	defer f.Close()
 
-	o, err := offset(lines, f)
-	if err != nil {
+	if _, err = offset(lines, f); err != nil {
 		return err
 	}
 
-	if err = printLines(o, f); err != nil {
+	if err = printLines(f); err != nil {
 		return err
 	}
 
