@@ -27,7 +27,7 @@ func printLines(file *os.File) error {
 	for {
 		line, err := b.ReadString('\n')
 		if err != nil {
-			fmt.Print(string(line))
+			fmt.Print(line)
 			break
 		}
 
@@ -104,7 +104,7 @@ func startPoint(lines int, file *os.File) error {
 func tailFiles(lines int, name string, printHeaders bool) error {
 
 	if printHeaders {
-		fmt.Printf("\n==> %s <==\n", name)
+		fmt.Printf("==> %s <==\n", name)
 	}
 
 	f, err := os.Open(name)
@@ -143,7 +143,11 @@ func tail(c *config) error {
 		printHeaders = true
 	}
 
-	for _, f := range c.files {
+	for i, f := range c.files {
+		// 複数行ファイルを対象とした際に、tailコマンドの表示に合わせるため改行を出力する
+		if i >= 1 {
+			println()
+		}
 		if err := tailFiles(l, f, printHeaders); err != nil {
 			return err
 		}
