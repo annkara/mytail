@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -18,37 +19,45 @@ type config struct {
 	files []string
 }
 
+// 出力内容を出力する
 func printLines(file *os.File) error {
 
 	b := bufio.NewReader(file)
 
 	for {
-		line, err := b.ReadBytes('\n')
+		line, err := b.ReadString('\n')
 		if err != nil {
-			fmt.Println(string(line))
+			fmt.Print(string(line))
 			break
 		}
 
-		tmp := strings.Trim(string(line), "\r\n")
-		if len(tmp) == 0 {
-			continue
-		}
-		fmt.Println(tmp)
+		fmt.Print(line)
+
 	}
 	return nil
 }
 
-func offset(lines int, file *os.File) (int64, error) {
+// 出力行数に応じた対象ファイルの出力開始地点を決定する
+// ファイル末尾から1byteずつ読みこみ、改行コードが存在すれば出力行数をデクリメントし、
+// 出力行数がゼロになった時点で出力開始地点とみなす
+
+// 現状、1byteずつ読み込んでいるが、バッファリングなどの改善をしていきたい
+func startPoint(lines int, file *os.File) error {
 
 	info, err := file.Stat()
 	if err != nil {
-		return 0, err
+		return err
 	}
 
 	size := info.Size() - 1
 	var offset int64
 	buf := make([]byte, 1)
 
+	// 対象ファイルの末尾に改行コードのみ存在した場合
+	// 既存のtailコマンドではその行を無視して、出力行としてカウントしていない挙動をしている。
+	// 改行コードが存在すれば出力行数をデクリメントする実装とした場合、既存のtailコマンドと比較すると
+	// 出力される行数が1行減ってしまうため、この for ループではファイル末尾に改行コードのみ存在した場合
+	// 出力行数に含めないようにしている
 	for {
 		b := make([]byte, 1)
 		offset, err = file.Seek(size, os.SEEK_SET)
@@ -64,6 +73,7 @@ func offset(lines int, file *os.File) (int64, error) {
 		}
 	}
 
+	// ファイルの出力開始位置を決定する
 	for lines > 0 {
 		offset, err = file.Seek(size, os.SEEK_SET)
 		if err != nil {
@@ -79,13 +89,22 @@ func offset(lines int, file *os.File) (int64, error) {
 		size--
 	}
 
-	return offset, nil
+	// 出力行数より多い行数を持つファイルの場合、出力する際に余計な改行コードが入ってしまうため
+	// 意図的に出力開始位置をインクリメントしている。
+	// [TODO] 修正したいが、現状どうすればよいか理解できていない。
+	if offset != 0 {
+		size++
+		size++
+		file.Seek(size, os.SEEK_SET)
+	}
+
+	return nil
 }
 
-func lines(lines int, name string, printHeaders bool) error {
+func tailFiles(lines int, name string, printHeaders bool) error {
 
 	if printHeaders {
-		fmt.Printf("==> %s <==\n", name)
+		fmt.Printf("\n==> %s <==\n", name)
 	}
 
 	f, err := os.Open(name)
@@ -94,7 +113,7 @@ func lines(lines int, name string, printHeaders bool) error {
 	}
 	defer f.Close()
 
-	if _, err = offset(lines, f); err != nil {
+	if err = startPoint(lines, f); err != nil {
 		return err
 	}
 
@@ -105,22 +124,27 @@ func lines(lines int, name string, printHeaders bool) error {
 	return nil
 }
 
+// 設定内容に応じて動作を変更し、実際のtail処理をtailFiles関数に委譲する
 func tail(c *config) error {
 
 	var l int
+
+	// 表示する行数の設定
+	// 0以下の値が引数として設定されている場合には、デフォルトの行数（10）を表示する
 	if c.lines > 0 {
 		l = c.lines
 	} else {
 		l = defaultLines
 	}
 
+	// 複数ファイルが指定されている場合に、ファイル名をヘッダ情報として出力する
 	var printHeaders bool
 	if len(c.files) > 1 {
 		printHeaders = true
 	}
 
 	for _, f := range c.files {
-		if err := lines(l, f, printHeaders); err != nil {
+		if err := tailFiles(l, f, printHeaders); err != nil {
 			return err
 		}
 	}
@@ -128,13 +152,20 @@ func tail(c *config) error {
 	return nil
 }
 
+// コマンドライン引数を解析する関数
 func parseArgs(args []string) (*config, error) {
 
 	var config config
 
 	for _, v := range args {
+
+		// コマンドライン引数の解析
+		// -nオプションのみに対応し、現状それ以外の引数はtail対象のファイルとして扱う
 		if strings.HasPrefix(v, "-n") {
 			arg := strings.Split(v, "=")
+			if len(arg) < 2 {
+				return nil, errors.New("-n=出力行数 の形式で指定してください")
+			}
 			n, err := strconv.Atoi(arg[1])
 			if err != nil {
 				return nil, err
@@ -157,8 +188,7 @@ func main() {
 		os.Exit(-1)
 	}
 
-	err = tail(c)
-	if err != nil {
+	if err = tail(c); err != nil {
 		log.Fatal(err)
 		os.Exit(-1)
 	}
